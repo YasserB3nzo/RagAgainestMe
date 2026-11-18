@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Practice</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23ffa116%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 font-family=%22monospace%22 font-weight=%22700%22 text-anchor=%22middle%22 fill=%22%231a1a1a%22%3ER%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<style>
+:root {
+  --bg: #1a1a1a; --panel: #262626; --head: #303030; --line: #3a3a3a; --hover: #3a3a3a;
+  --text: #eff1f6; --soft: #c9ccd3; --muted: #8a8f98;
+  --accent: #ffa116; --ok: #2cbb5d; --bad: #ef4743; --warn: #ffc01e;
+  --easy: #00b8a3; --medium: #ffc01e; --hard: #ef4743;
+  --code-bg: #1e1e1e; --chip: #3c3c3c;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --left-w: 44%; --code-h: 58%;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--sans); display: flex; flex-direction: column; overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- top bar ---------- */
+.topbar { height: 50px; flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 12px; gap: 12px; }
+.topbar .left, .topbar .right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.topbar .right { justify-content: flex-end; }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .01em; margin-right: 8px; white-space: nowrap; }
+.logo-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #1a1a1a; display: grid; place-items: center; font: 700 12px var(--mono); }
+.logo span { color: var(--muted); font-weight: 500; }
+.ghost { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; color: var(--soft); white-space: nowrap; }
+.ghost:hover { background: var(--hover); color: var(--text); }
+.icon-btn { padding: 6px; border-radius: 6px; color: var(--soft); display: grid; place-items: center; }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.actions { display: flex; gap: 2px; background: var(--panel); border-radius: 8px; padding: 3px; }
+.actions button { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 6px; font-weight: 600; }
+.actions button:hover { background: var(--hover); }
+#exec-btn, #run-btn { color: var(--soft); }
+#submit-btn { color: var(--ok); }
+.actions button[disabled] { opacity: .5; cursor: progress; }
+.progress { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.progress b { color: var(--text); font-weight: 600; }
+.bar { width: 120px; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .4s; }
+
+/* ---------- workspace ---------- */
+.workspace { flex: 1; min-height: 0; display: flex; padding: 0 8px 8px; }
+.pane { background: var(--panel); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.left-pane { width: var(--left-w); flex: none; }
+.right-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.code-pane { height: var(--code-h); flex: none; }
+.result-pane { flex: 1; }
+.gutter-v { width: 8px; flex: none; cursor: col-resize; display: grid; place-items: center; }
+.gutter-h { height: 8px; flex: none; cursor: row-resize; display: grid; place-items: center; }
+.gutter-v::after { content: ""; width: 2px; height: 24px; border-radius: 1px; background: var(--line); }
+.gutter-h::after { content: ""; height: 2px; width: 24px; border-radius: 1px; background: var(--line); }
+.gutter-v:hover::after, .gutter-h:hover::after, .dragging::after { background: #4f8cff; }
+
+.pane-head { height: 38px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; background: var(--head); border-bottom: 1px solid var(--line); }
+.tab { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 5px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.tab:hover { color: var(--text); background: var(--hover); }
+.tab.active { color: var(--text); }
+.tab .dot { width: 6px; height: 6px; border-radius: 50%; }
+.sep { width: 1px; height: 14px; background: var(--line); margin: 0 2px; }
+.pane-head .spacer { flex: 1; }
+.pane-body { flex: 1; overflow: auto; padding: 18px 22px 28px; }
+
+/* ---------- description ---------- */
+.crumb { color: var(--muted); font-size: 12.5px; margin-bottom: 4px; }
+.desc-title { font-size: 22px; font-weight: 700; margin: 0 0 12px; font-family: var(--sans); }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; background: var(--chip); font-size: 12.5px; color: var(--soft); }
+button.pill:hover { color: var(--text); background: #474747; }
+.pill.easy { color: var(--easy); } .pill.medium { color: var(--medium); } .pill.hard { color: var(--hard); }
+.pill.solved { color: var(--ok); }
+.doc p { margin: 0 0 12px; color: var(--soft); }
+.doc ul { margin: 0 0 12px; padding-left: 20px; color: var(--soft); }
+.doc li { margin: 3px 0; }
+.doc code, .guide code { font-family: var(--mono); font-size: 12.5px; background: #ffffff12; border: 1px solid #ffffff14; border-radius: 4px; padding: 1px 4px; color: var(--text); }
+.doc pre, .guide pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; background: var(--code-bg); border-radius: 6px; padding: 10px 12px; margin: 0 0 14px; overflow-x: auto; color: var(--soft); white-space: pre; }
+.ex { margin: 0 0 14px; }
+.ex-h { font-weight: 700; margin-bottom: 6px; }
+.ex pre { border-left: 2px solid #ffffff24; border-radius: 0 6px 6px 0; background: transparent; padding: 2px 12px; }
+.problems-in-module { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 14px; }
+.problems-in-module h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; }
+.row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 6px; color: var(--soft); }
+.row:nth-child(even) { background: #ffffff06; }
+.row:hover { background: var(--hover); color: var(--text); }
+.row.current { color: var(--accent); }
+.row .name { flex: 1; font-family: var(--mono); font-size: 13px; }
+.state-icon { width: 16px; display: grid; place-items: center; font-size: 12px; }
+.st-solved { color: var(--ok); } .st-started, .st-blocked { color: var(--warn); } .st-todo { color: var(--muted); }
+
+/* ---------- guide (markdown) ---------- */
+.guide { color: var(--soft); }
+.guide h1 { font-size: 22px; color: var(--text); margin: 0 0 14px; }
+.guide h2 { font-size: 16px; color: var(--text); margin: 24px 0 8px; }
+.guide table { border-collapse: collapse; margin: 0 0 14px; font-size: 13px; display: block; overflow-x: auto; }
+.guide th, .guide td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.guide th { background: #ffffff08; color: var(--text); }
+.guide pre code { background: none; border: 0; padding: 0; }
+.guide strong { color: var(--text); }
+.guide a { color: #4f8cff; }
+
+/* ---------- hints ---------- */
+.hint-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; color: var(--soft); }
+.hint-card b { display: block; color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.reveal { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; background: var(--chip); color: var(--text); font-weight: 500; }
+.reveal:hover { background: #474747; }
+.note { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+/* ---------- code ---------- */
+.lang { display: flex; align-items: center; gap: 4px; color: var(--soft); padding: 4px 8px; font-size: 13px; }
+.save-state { font-size: 12px; color: var(--muted); padding: 0 8px; white-space: nowrap; }
+.editor-wrap { flex: 1; min-height: 0; position: relative; }
+.CodeMirror { height: 100%; background: var(--panel); color: #d4d4d4; font-family: var(--mono); font-size: 13.5px; line-height: 1.6; font-variant-ligatures: none; }
+.CodeMirror pre.CodeMirror-line, .CodeMirror pre.CodeMirror-line-like, pre, code { font-variant-ligatures: none; }
+.CodeMirror-gutters { background: var(--panel); border-right: 0; }
+.CodeMirror-linenumber { color: #6e7681; padding: 0 12px 0 8px; }
+.CodeMirror-cursor { border-left: 2px solid #aeafad; }
+.CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected { background: #264f78 !important; }
+.CodeMirror-activeline-background { background: #ffffff08; }
+.CodeMirror-matchingbracket { color: #fff !important; outline: 1px solid #888; }
+.cm-s-rag .cm-keyword { color: #c586c0; } .cm-s-rag .cm-def { color: #dcdcaa; } .cm-s-rag .cm-variable { color: #9cdcfe; }
+.cm-s-rag .cm-variable-2 { color: #9cdcfe; } .cm-s-rag .cm-builtin { color: #4ec9b0; } .cm-s-rag .cm-string { color: #ce9178; }
+.cm-s-rag .cm-string-2 { color: #ce9178; } .cm-s-rag .cm-number { color: #b5cea8; } .cm-s-rag .cm-comment { color: #6a9955; font-style: italic; }
+.cm-s-rag .cm-operator { color: #d4d4d4; } .cm-s-rag .cm-property { color: #dcdcaa; } .cm-s-rag .cm-meta { color: #dcdcaa; } .cm-s-rag .cm-atom { color: #569cd6; }
+.cm-s-rag .cm-punctuation, .cm-s-rag .cm-bracket { color: #d4d4d4; }
+.fallback-editor { width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: var(--panel); color: #d4d4d4; font: 13.5px/1.6 var(--mono); padding: 8px 14px; tab-size: 4; }
+.pane-foot { height: 30px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+
+/* ---------- results ---------- */
+.empty { color: var(--muted); display: grid; place-items: center; height: 100%; text-align: center; padding: 20px; }
+.empty kbd { font-family: var(--mono); font-size: 12px; background: var(--chip); border-radius: 4px; padding: 1px 6px; color: var(--soft); }
+.verdict { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.verdict h2 { margin: 0; font-size: 20px; }
+.verdict .sub { color: var(--muted); font-size: 13px; }
+.v-ok { color: var(--ok); } .v-bad { color: var(--bad); } .v-warn { color: var(--warn); } .v-muted { color: var(--soft); }
+.cases { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.case { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 6px; color: var(--soft); background: transparent; font-size: 13px; }
+.case:hover { background: var(--hover); }
+.case.active { background: var(--chip); color: var(--text); }
+.case .dot { width: 6px; height: 6px; border-radius: 50%; }
+.dot.pass { background: var(--ok); } .dot.fail, .dot.error { background: var(--bad); } .dot.todo { background: var(--muted); } .dot.blocked { background: var(--warn); }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+.box { font-variant-ligatures: none; font-family: var(--mono); font-size: 13px; background: #ffffff0d; border-radius: 6px; padding: 9px 12px; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+.box.expected { border-left: 2px solid var(--ok); }
+.box.got { border-left: 2px solid var(--bad); }
+.box.err { color: #ffb4a8; }
+.module-rows .row { cursor: pointer; }
+.module-rows .count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- playground ---------- */
+.play { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.play[hidden] { display: none !important; }
+.scratch-wrap { height: var(--scratch-h, 42%); min-height: 60px; flex: none; position: relative; border-bottom: 1px solid var(--line); }
+.scratch-wrap .CodeMirror { font-size: 13px; }
+.play-bar { height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.play-bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 5px; color: var(--soft); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.mini:hover { background: var(--hover); color: var(--text); }
+.mini.go { background: var(--chip); color: var(--text); }
+.mini.go:hover { background: #474747; }
+.mini[disabled] { opacity: .5; cursor: progress; }
+.play-out { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 20px; }
+.play-out .verdict { margin-bottom: 10px; }
+.play-out .verdict h2 { font-size: 16px; }
+.box.console { min-height: 20px; max-height: none; }
+
+/* ---------- problem list drawer ---------- */
+.scrim { position: fixed; inset: 0; background: #0008; z-index: 20; }
+.drawer { position: fixed; top: 0; bottom: 0; left: 0; width: min(440px, 92vw); background: var(--panel); z-index: 21; display: flex; flex-direction: column; box-shadow: 8px 0 30px #0008; }
+.drawer header { height: 50px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.drawer .list { overflow: auto; padding: 8px 10px 20px; }
+.mod { margin-bottom: 6px; }
+.mod-title { display: flex; align-items: center; gap: 10px; padding: 8px 8px 4px; color: var(--text); font-weight: 600; font-size: 13.5px; }
+.mod-title .num { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+.mod-title .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; }
+.mod-title .count.done { color: var(--ok); }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #3a1d1d; color: #ffb4a8; border: 1px solid #6b2b2b; padding: 9px 16px; border-radius: 8px; z-index: 30; font-size: 13px; max-width: 90vw; }
+[hidden] { display: none !important; }
+
+@media (max-width: 860px) {
+  body { overflow: auto; }
+  .workspace { flex-direction: column; height: auto; }
+  .left-pane { width: auto; height: 60vh; }
+  .gutter-v { display: none; }
+  .right-col { height: 90vh; }
+  .progress .bar { display: none; }
+  .topbar { grid-template-columns: auto auto; }
+  .topbar .right { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .bar i { transition: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M12 16h7"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="left">
+    <div class="logo"><div class="logo-mark">R</div>RAG <span>Practice</span></div>
+    <button class="ghost" id="list-btn" type="button"><svg class="i"><use href="#i-list"/></svg>Problem List</button>
+    <button class="icon-btn" id="prev-btn" type="button" aria-label="Previous problem"><svg class="i"><use href="#i-left"/></svg></button>
+    <button class="icon-btn" id="next-btn" type="button" aria-label="Next problem"><svg class="i"><use href="#i-right"/></svg></button>
+  </div>
+  <div class="actions">
+    <button id="exec-btn" type="button" title="Run your code in the Playground, without tests (Ctrl+')"><svg class="i"><use href="#i-term"/></svg>Run code</button>
+    <button id="run-btn" type="button" title="Run this problem's tests (Ctrl+Enter)"><svg class="i"><use href="#i-play"/></svg>Run tests</button>
+    <button id="submit-btn" type="button" title="Run every test in this module (Ctrl+Shift+Enter)"><svg class="i"><use href="#i-up"/></svg>Submit</button>
+  </div>
+  <div class="right">
+    <div class="progress"><span><b id="solved-count">0</b> / <span id="total-count">0</span> solved</span><div class="bar"><i id="solved-bar"></i></div></div>
+  </div>
+</header>
+
+<main class="workspace" id="workspace">
+  <section class="pane left-pane" aria-label="Problem">
+    <div class="pane-head" role="tablist">
+      <button class="tab active" data-tab="desc" type="button"><svg class="i" style="color:#4f8cff"><use href="#i-doc"/></svg>Description</button>
+      <span class="sep"></span>
+      <button class="tab" data-tab="guide" type="button"><svg class="i" style="color:#2cbb5d"><use href="#i-book"/></svg>Guide</button>
+      <span class="sep"></span>
+      <button class="tab" data-tab="hints" type="button"><svg class="i" style="color:#ffc01e"><use href="#i-bulb"/></svg>Hints</button>
+    </div>
+    <div class="pane-body" id="tab-desc"></div>
+    <div class="pane-body guide" id="tab-guide" hidden></div>
+    <div class="pane-body" id="tab-hints" hidden></div>
+  </section>
+
+  <div class="gutter-v" id="gutter-v" role="separator" aria-orientation="vertical"></div>
+
+  <section class="right-col">
+    <section class="pane code-pane" aria-label="Code">
+      <div class="pane-head">
+        <span class="tab active"><svg class="i" style="color:#2cbb5d"><use href="#i-code"/></svg>Code</span>
+        <span class="spacer"></span>
+        <span class="lang">Python3</span>
+        <span class="save-state" id="save-state">Saved</span>
+        <button class="icon-btn" id="reset-btn" type="button" title="Reset this problem to the original starter code"><svg class="i"><use href="#i-reset"/></svg></button>
+      </div>
+      <div class="editor-wrap" id="editor"></div>
+      <div class="pane-foot"><span id="file-path">modules/…/exercise.py</span><span id="cursor-pos">Ln 1, Col 1</span></div>
+    </section>
+
+    <div class="gutter-h" id="gutter-h" role="separator" aria-orientation="horizontal"></div>
+
+    <section class="pane result-pane" aria-label="Results">
+      <div class="pane-head" role="tablist">
+        <button class="tab" data-rtab="play" type="button" title="Try your functions on any input"><svg class="i" style="color:#4f8cff"><use href="#i-term"/></svg>Playground</button>
+        <span class="sep"></span>
+        <button class="tab active" data-rtab="result" type="button"><svg class="i" style="color:#2cbb5d"><use href="#i-check"/></svg>Test Result</button>
+      </div>
+      <div class="play" id="play" hidden>
+        <div class="scratch-wrap" id="scratch"></div>
+        <div class="play-bar">
+          <span class="grow">Your functions from exercise.py are loaded. Write any Python and print() what you want to see.</span>
+          <button class="mini" id="scratch-reset" type="button" title="Put the example back"><svg class="i"><use href="#i-reset"/></svg>Example</button>
+          <button class="mini go" id="exec-btn-2" type="button" title="Run code (Ctrl+')"><svg class="i"><use href="#i-play"/></svg>Run code</button>
+        </div>
+        <div class="play-out" id="play-out"></div>
+      </div>
+      <div class="pane-body" id="result"></div>
+    </section>
+  </section>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Problem list">
+  <header>Problem List <button class="icon-btn" id="close-drawer" type="button" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></header>
+  <div class="list" id="drawer-list"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+let status = [];                 // from /api/status: modules with per-problem states
+let modules = {};                // number -> /api/module payload
+let current = { module: 1, problem: null };
+let lastResult = null;           // last run payload shown in the result pane
+let lastExec = null;             // last playground run: {pending} or the /api/exec payload
+let scratch;                     // the playground editor
+let saveTimer = null, dirty = false, loading = false;
+
+/* ---------------- API ---------------- */
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({ error: "The server sent an unreadable reply." }));
+  if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+  return data;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 4500);
+}
+
+/* ---------------- editor ---------------- */
+let editor;
+if (window.CodeMirror) {
+  editor = CodeMirror($("editor"), {
+    mode: "python", theme: "rag", indentUnit: 4, tabSize: 4, lineNumbers: true, matchBrackets: true,
+    autoCloseBrackets: true, styleActiveLine: true, viewportMargin: 20,
+    extraKeys: {
+      Tab: cm => cm.somethingSelected() ? cm.indentSelection("add") : cm.replaceSelection("    ", "end"),
+      "Shift-Tab": cm => cm.indentSelection("subtract"),
+      "Ctrl-Enter": () => run("problem"), "Cmd-Enter": () => run("problem"),
+      "Shift-Ctrl-Enter": () => run("module"), "Shift-Cmd-Enter": () => run("module"),
+      "Ctrl-S": () => save(), "Cmd-S": () => save(),
+      "Ctrl-/": "toggleComment",
+    },
+  });
+  editor.on("change", () => { if (!loading) markDirty(); });
+  editor.on("cursorActivity", () => {
+    const c = editor.getCursor(); $("cursor-pos").textContent = `Ln ${c.line + 1}, Col ${c.ch + 1}`;
+  });
+} else {
+  // Offline fallback: a plain text area.
+  const ta = document.createElement("textarea");
+  ta.className = "fallback-editor"; ta.spellcheck = false;
+  $("editor").appendChild(ta);
+  ta.addEventListener("input", () => { if (!loading) markDirty(); });
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Tab") { e.preventDefault(); ta.setRangeText("    ", ta.selectionStart, ta.selectionEnd, "end"); markDirty(); }
+  });
+  editor = { getValue: () => ta.value, setValue: v => ta.value = v, refresh() {}, focus: () => ta.focus(), clearHistory() {}, scrollTo() {} };
+}
+
+/* ---------------- playground editor ---------------- */
+if (window.CodeMirror) {
+  scratch = CodeMirror($("scratch"), {
+    mode: "python", theme: "rag", indentUnit: 4, tabSize: 4, lineNumbers: true, matchBrackets: true,
+    autoCloseBrackets: true, viewportMargin: 20,
+    extraKeys: {
+      Tab: cm => cm.somethingSelected() ? cm.indentSelection("add") : cm.replaceSelection("    ", "end"),
+      "Shift-Tab": cm => cm.indentSelection("subtract"),
+      "Ctrl-/": "toggleComment",
+    },
+  });
+  scratch.on("change", () => { if (!loading) saveScratch(); });
+} else {
+  const ta = document.createElement("textarea");
+  ta.className = "fallback-editor"; ta.spellcheck = false;
+  $("scratch").appendChild(ta);
+  ta.addEventListener("input", () => { if (!loading) saveScratch(); });
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Tab") { e.preventDefault(); ta.setRangeText("    ", ta.selectionStart, ta.selectionEnd, "end"); saveScratch(); }
+  });
+  scratch = { getValue: () => ta.value, setValue: v => ta.value = v, refresh() {}, focus: () => ta.focus(), clearHistory() {} };
+}
+const scratchKey = () => `rag-scratch:${current.module}/${current.problem}`;
+function saveScratch() { if (current.problem) store.set(scratchKey(), scratch.getValue()); }
+function loadScratch() {
+  const p = problemData();
+  loading = true; scratch.setValue(store.get(scratchKey(), null) ?? (p?.starter || "")); scratch.clearHistory(); loading = false;
+}
+
+function markDirty() {
+  dirty = true; $("save-state").textContent = "Unsaved";
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 800);
+}
+async function save() {
+  clearTimeout(saveTimer);
+  if (!dirty || !current.problem) return;
+  const payload = { module: current.module, problem: current.problem, code: editor.getValue() };
+  $("save-state").textContent = "Saving…";
+  try {
+    await api("/api/save", payload);
+    dirty = false; $("save-state").textContent = "Saved";
+    const p = problemData(); if (p) p.code = payload.code;
+  } catch (e) { $("save-state").textContent = "Not saved"; toast("Could not save: " + e.message); }
+}
+
+/* ---------------- navigation ---------------- */
+function allProblems() {
+  return status.flatMap(m => m.problems.map(p => ({ module: m.number, problem: p.name, state: p.state })));
+}
+function problemData() {
+  const m = modules[current.module];
+  return m && m.problems.find(p => p.name === current.problem);
+}
+function stateOf(moduleNumber, name) {
+  const m = status.find(s => s.number === moduleNumber);
+  const p = m && m.problems.find(x => x.name === name);
+  return p ? p.state : "todo";
+}
+async function open(moduleNumber, problemName) {
+  await save();
+  if (!modules[moduleNumber]) modules[moduleNumber] = await api(`/api/module?n=${moduleNumber}`);
+  const mod = modules[moduleNumber];
+  const p = mod.problems.find(x => x.name === problemName) || mod.problems[0];
+  if (!p) { toast(`Module ${moduleNumber} has no problems: are the "# Problem N · name" banners still in its exercise.py?`); return; }
+  current = { module: moduleNumber, problem: p.name };
+  store.set("rag-current", current);
+  const fresh = await api(`/api/code?n=${moduleNumber}&problem=${encodeURIComponent(p.name)}`);
+  p.code = fresh.code;
+  loading = true; editor.setValue(p.code); editor.clearHistory(); loading = false;
+  dirty = false; $("save-state").textContent = "Saved";
+  $("file-path").textContent = `modules/${String(moduleNumber).padStart(2, "0")}_…/exercise.py`;
+  const dir = status.find(s => s.number === moduleNumber);
+  if (dir) $("file-path").textContent = `modules/${dir.dir}/exercise.py`;
+  renderDescription(); renderGuide(); renderHints();
+  lastResult = null; renderResult();
+  lastExec = null; loadScratch(); renderExec();
+  editor.refresh(); editor.scrollTo(0, 0);
+  closeDrawer();
+}
+function step(delta) {
+  const list = allProblems();
+  const i = list.findIndex(x => x.module === current.module && x.problem === current.problem);
+  const next = list[i + delta];
+  if (next) open(next.module, next.problem);
+}
+
+/* ---------------- description ---------------- */
+function inline(text) {
+  return esc(text).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/"([^"\n]{1,48})"/g, '<code>"$1"</code>');
+}
+function dedent(lines) {
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  while (lines.length && !lines[0].trim()) lines.shift();
+  const pad = Math.min(...lines.filter(l => l.trim()).map(l => l.match(/^\s*/)[0].length));
+  return lines.map(l => l.slice(isFinite(pad) ? pad : 0)).join("\n");
+}
+function renderDoc(doc) {
+  const segs = []; let cur = null;
+  for (const raw of doc.split("\n")) {
+    const t = raw.trim(), ind = raw.match(/^\s*/)[0].length;
+    if (!t) { if (cur && (cur.type === "pre" || cur.type === "ex")) cur.lines.push(""); else cur = null; continue; }
+    if (ind === 0 && /^Example\b[^:]*:/.test(t)) {
+      const at = t.indexOf(":"); cur = { type: "ex", head: t.slice(0, at), lines: [] };
+      const rest = t.slice(at + 1).trim(); if (rest) cur.lines.push(rest);
+      segs.push(cur); continue;
+    }
+    if (/^- /.test(t) && !(cur && cur.type === "ex")) {
+      if (!cur || cur.type !== "ul") { cur = { type: "ul", items: [] }; segs.push(cur); }
+      cur.items.push(t.slice(2)); continue;
+    }
+    if (cur && cur.type === "ul" && ind > 0) { cur.items[cur.items.length - 1] += " " + t; continue; }
+    if (ind > 0) {
+      if (cur && (cur.type === "pre" || cur.type === "ex")) cur.lines.push(raw);
+      else { cur = { type: "pre", lines: [raw] }; segs.push(cur); }
+      continue;
+    }
+    if (cur && cur.type === "p") cur.lines.push(t); else { cur = { type: "p", lines: [t] }; segs.push(cur); }
+  }
+  return segs.map(s => {
+    if (s.type === "p") return `<p>${inline(s.lines.join(" "))}</p>`;
+    if (s.type === "ul") return `<ul>${s.items.map(i => `<li>${inline(i)}</li>`).join("")}</ul>`;
+    if (s.type === "pre") return `<pre>${esc(dedent(s.lines))}</pre>`;
+    return `<div class="ex"><div class="ex-h">${esc(s.head)}:</div><pre>${esc(dedent(s.lines))}</pre></div>`;
+  }).join("");
+}
+const STATE_ICON = { solved: "✓", started: "●", blocked: "●", todo: "○" };
+function renderDescription() {
+  const mod = modules[current.module], p = problemData();
+  const st = stateOf(current.module, p.name);
+  const diff = (p.difficulty || "easy").split(",")[0].trim().toLowerCase();
+  const diffClass = diff.includes("medium") || diff.includes("capstone") ? "medium" : diff.includes("hard") ? "hard" : "easy";
+  $("tab-desc").innerHTML = `
+    <div class="crumb">${esc(mod.title)}</div>
+    <h1 class="desc-title">${p.number}. ${esc(p.name)}</h1>
+    <div class="pills">
+      <span class="pill ${diffClass}">${esc(p.difficulty || "easy")}</span>
+      <button class="pill" type="button" data-goto="hints"><svg class="i" style="width:13px;height:13px"><use href="#i-bulb"/></svg>Hints ${p.hints.length}/${p.hints_total}</button>
+      <button class="pill" type="button" data-goto="guide"><svg class="i" style="width:13px;height:13px"><use href="#i-book"/></svg>Guide</button>
+      ${st === "solved" ? '<span class="pill solved">✓ Solved</span>' : ""}
+    </div>
+    <div class="doc">${renderDoc(p.description)}</div>
+    <div class="problems-in-module">
+      <h3>In this module</h3>
+      ${mod.problems.map(x => {
+        const s = stateOf(current.module, x.name);
+        return `<button class="row ${x.name === p.name ? "current" : ""}" type="button" data-open="${esc(x.name)}">
+          <span class="state-icon st-${s}">${STATE_ICON[s] || "○"}</span><span class="name">${x.number}. ${esc(x.name)}</span>
+          <span class="count">${esc(x.difficulty || "")}</span></button>`;
+      }).join("")}
+    </div>`;
+}
+function renderGuide() {
+  const md = modules[current.module].guide;
+  $("tab-guide").innerHTML = window.marked ? marked.parse(md) : `<pre>${esc(md)}</pre>`;
+}
+function renderHints() {
+  const p = problemData();
+  const cards = p.hints.map((h, i) => `<div class="hint-card"><b>Hint ${i + 1}</b>${inline(h)}</div>`).join("");
+  const more = p.hints.length < p.hints_total
+    ? `<button class="reveal" id="reveal-hint" type="button"><svg class="i"><use href="#i-bulb"/></svg>Show hint ${p.hints.length + 1} of ${p.hints_total}</button>`
+    : `<p class="note">That was the last hint. Reread the guide, add print() calls, and run again. Stdout shows up in the test result.</p>`;
+  $("tab-hints").innerHTML = `<p class="note">Hints point the way without giving the answer. Open one at a time.</p>${cards}${more}`;
+}
+function showTab(name) {
+  document.querySelectorAll(".left-pane .tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  ["desc", "guide", "hints"].forEach(n => $("tab-" + n).hidden = n !== name);
+}
+
+/* ---------------- run / results ---------------- */
+function prettyCase(name) { return name.replace(/_/g, " "); }
+function verdictOf(p, loadError) {
+  if (loadError) return ["Compile Error", "v-bad"];
+  if (p.state === "solved") return ["Accepted", "v-ok"];
+  if (p.state === "todo") return ["Not started", "v-muted"];
+  if (p.state === "blocked") return ["Blocked", "v-warn"];
+  return p.cases.some(c => c.status === "error") ? ["Runtime Error", "v-bad"] : ["Wrong Answer", "v-bad"];
+}
+function messageHtml(c) {
+  if (c.status === "pass") return `<div class="field"><label>Result</label><div class="box expected">Passed</div></div>`;
+  if (c.status === "todo") return `<div class="field"><label>Result</label><div class="box">Still raises NotImplementedError. Replace it with your solution.</div></div>`;
+  const lines = c.message.split("\n");
+  const exp = lines.find(l => l.trim().startsWith("expected"));
+  const got = lines.find(l => l.trim().startsWith("got"));
+  let html = "";
+  if (exp || got) {
+    const what = lines.filter(l => l !== exp && l !== got).join("\n").trim();
+    if (what) html += `<div class="field"><label>Checking</label><div class="box">${esc(what)}</div></div>`;
+    if (exp) html += `<div class="field"><label>Expected</label><div class="box expected">${esc(exp.replace(/^\s*expected:?\s*/, ""))}</div></div>`;
+    if (got) html += `<div class="field"><label>Output</label><div class="box got">${esc(got.replace(/^\s*got:?\s*/, ""))}</div></div>`;
+  } else {
+    html += `<div class="field"><label>${c.status === "error" ? "Error" : "Message"}</label><div class="box err">${esc(c.message)}</div></div>`;
+  }
+  return html;
+}
+function renderResult() {
+  const el = $("result");
+  if (!lastResult) {
+    el.innerHTML = `<div class="empty"><div>Run your code to see the test results.<br><br><kbd>Ctrl</kbd> + <kbd>Enter</kbd> Run &nbsp;·&nbsp; <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> Submit module</div></div>`;
+    return;
+  }
+  if (lastResult.pending) { el.innerHTML = `<div class="empty"><div class="spinner"></div></div>`; return; }
+  const r = lastResult.data;
+  if (r.load_error) {
+    el.innerHTML = `<div class="verdict"><h2 class="v-bad">Compile Error</h2><span class="sub">exercise.py could not be loaded</span></div>
+      <div class="box err">${esc(r.load_error)}</div>`;
+    return;
+  }
+  if (lastResult.scope === "module") {
+    const solved = r.problems.filter(p => p.state === "solved").length;
+    const all = solved === r.problems.length;
+    el.innerHTML = `<div class="verdict"><h2 class="${all ? "v-ok" : "v-bad"}">${all ? "Module complete" : "Not yet"}</h2>
+        <span class="sub">${solved} / ${r.problems.length} problems accepted</span></div>
+      <div class="module-rows">${r.problems.map(p => {
+        const [v, cls] = verdictOf(p);
+        return `<button class="row" type="button" data-open="${esc(p.name)}"><span class="state-icon st-${p.state}">${STATE_ICON[p.state]}</span>
+          <span class="name">${esc(p.name)}</span><span class="${cls}" style="font-size:13px">${v}</span>
+          <span class="count">${p.passed}/${p.total}</span></button>`;
+      }).join("")}</div>`;
+    return;
+  }
+  const p = r.problems[0];
+  const [v, cls] = verdictOf(p);
+  const sel = Math.min(lastResult.selected || 0, p.cases.length - 1);
+  const c = p.cases[sel];
+  el.innerHTML = `<div class="verdict"><h2 class="${cls}">${v}</h2><span class="sub">${p.passed} / ${p.total} testcases passed</span></div>
+    <div class="cases">${p.cases.map((x, i) => `<button class="case ${i === sel ? "active" : ""}" type="button" data-case="${i}">
+      <span class="dot ${x.status}"></span>Case ${i + 1}</button>`).join("")}</div>
+    ${c ? `<div class="field"><label>Test</label><div class="box">${esc(prettyCase(c.case))}</div></div>
+    ${messageHtml(c)}
+    ${c.output ? `<div class="field"><label>Stdout</label><div class="box">${esc(c.output)}</div></div>` : ""}` : ""}`;
+}
+async function run(scope) {
+  if (!current.problem || lastResult?.pending) return;
+  clearTimeout(saveTimer);
+  const body = { module: current.module, problem: current.problem, code: editor.getValue(), scope };
+  $("run-btn").disabled = $("submit-btn").disabled = true;
+  showResultTab("result");
+  lastResult = { pending: true }; renderResult();
+  try {
+    const data = await api("/api/run", body);
+    dirty = false; $("save-state").textContent = "Saved";
+    const p = problemData(); if (p) p.code = body.code;
+    let selected = 0;
+    if (scope === "problem" && data.problems[0]) {
+      const firstBad = data.problems[0].cases.findIndex(c => c.status !== "pass");
+      selected = firstBad < 0 ? 0 : firstBad;
+    }
+    lastResult = { scope, data, selected };
+  } catch (e) {
+    lastResult = null; toast("Run failed: " + e.message);
+  } finally {
+    $("run-btn").disabled = $("submit-btn").disabled = false;
+  }
+  renderResult();
+  refreshStatus();
+}
+
+/* ---------------- playground run ---------------- */
+function showResultTab(name) {
+  document.querySelectorAll(".result-pane .tab").forEach(t => t.classList.toggle("active", t.dataset.rtab === name));
+  $("play").hidden = name !== "play"; $("result").hidden = name !== "result";
+  store.set("rag-result-tab", name);
+  if (name === "play") scratch.refresh();
+}
+function renderExec() {
+  const el = $("play-out");
+  if (!lastExec) {
+    el.innerHTML = `<div class="empty"><div>Edit the code above, then press <b>Run code</b>.<br>No tests run here: you just see what your code prints.<br><br><kbd>Ctrl</kbd> + <kbd>'</kbd> Run code</div></div>`;
+    return;
+  }
+  if (lastExec.pending) { el.innerHTML = `<div class="empty"><div class="spinner"></div></div>`; return; }
+  const r = lastExec;
+  const loadFailed = r.stderr.startsWith("exercise.py could not be loaded");
+  const [title, cls] = r.timed_out ? ["Time Limit Exceeded", "v-warn"]
+    : r.exit_code === 0 ? ["Finished", "v-ok"]
+    : loadFailed ? ["Compile Error", "v-bad"]
+    : /^(SyntaxError|IndentationError|TabError)\b/m.test(r.stderr) ? ["Syntax Error", "v-bad"]
+    : /NotImplementedError/.test(r.stderr) ? ["Not implemented yet", "v-muted"] : ["Runtime Error", "v-bad"];
+  const sub = r.timed_out ? `stopped after ${r.timeout} s: is there an endless loop?` : `${r.seconds.toFixed(2)} s`;
+  const out = r.stdout.replace(/\n$/, "");
+  let html = `<div class="verdict"><h2 class="${cls}">${title}</h2><span class="sub">${sub}</span></div>`;
+  if (/NotImplementedError/.test(r.stderr) && !loadFailed)
+    html += `<p class="note">The function you called still raises NotImplementedError. Write your solution in the editor, then run again.</p>`;
+  html += `<div class="field"><label>Stdout</label><div class="box console">${out ? esc(out) : '<span style="color:var(--muted)">(nothing printed: wrap a value in print() to see it)</span>'}</div></div>`;
+  if (r.stderr.trim()) html += `<div class="field"><label>${r.exit_code === 0 ? "Stderr" : "Error"}</label><div class="box err">${esc(r.stderr.replace(/^\n+/, "").trimEnd())}</div></div>`;
+  if (r.truncated) html += `<p class="note">The output was very long, so only the first part is shown.</p>`;
+  el.innerHTML = html;
+}
+async function execRun() {
+  if (!current.problem || lastExec?.pending) return;
+  clearTimeout(saveTimer);
+  const body = { module: current.module, problem: current.problem, code: editor.getValue(), scratch: scratch.getValue() };
+  showResultTab("play");
+  $("exec-btn").disabled = $("exec-btn-2").disabled = true;
+  lastExec = { pending: true }; renderExec();
+  try {
+    lastExec = await api("/api/exec", body);
+    dirty = false; $("save-state").textContent = "Saved";
+    const p = problemData(); if (p) p.code = body.code;
+  } catch (e) {
+    lastExec = null; toast("Run failed: " + e.message);
+  } finally {
+    $("exec-btn").disabled = $("exec-btn-2").disabled = false;
+  }
+  renderExec();
+}
+
+/* ---------------- status + drawer ---------------- */
+async function refreshStatus() {
+  try { status = await api("/api/status"); } catch (e) { toast("Could not read progress: " + e.message); return; }
+  const list = allProblems();
+  const solved = list.filter(x => x.state === "solved").length;
+  $("solved-count").textContent = solved; $("total-count").textContent = list.length;
+  $("solved-bar").style.width = (list.length ? solved / list.length * 100 : 0) + "%";
+  if (current.problem && modules[current.module]) renderDescription();
+  renderDrawer();
+}
+function renderDrawer() {
+  $("drawer-list").innerHTML = status.map(m => {
+    const solved = m.problems.filter(p => p.state === "solved").length;
+    return `<div class="mod"><div class="mod-title"><span class="num">${String(m.number).padStart(2, "0")}</span>
+      ${esc(m.title.replace(/^Module \d+ · /, ""))}<span class="count ${solved === m.problems.length ? "done" : ""}">${solved}/${m.problems.length}</span></div>
+      ${m.problems.map((p, i) => `<button class="row ${m.number === current.module && p.name === current.problem ? "current" : ""}" type="button"
+          data-module="${m.number}" data-open="${esc(p.name)}"><span class="state-icon st-${p.state}">${STATE_ICON[p.state] || "○"}</span>
+          <span class="name">${i + 1}. ${esc(p.name)}</span></button>`).join("")}</div>`;
+  }).join("");
+}
+function openDrawer() { renderDrawer(); $("drawer").hidden = $("scrim").hidden = false; }
+function closeDrawer() { $("drawer").hidden = $("scrim").hidden = true; }
+
+/* ---------------- splitters ---------------- */
+function splitter(id, axis) {
+  const g = $(id);
+  g.addEventListener("pointerdown", e => {
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("dragging");
+    const box = (axis === "x" ? $("workspace") : g.parentElement).getBoundingClientRect();
+    const move = ev => {
+      if (axis === "x") {
+        const pct = Math.min(75, Math.max(22, (ev.clientX - box.left) / box.width * 100));
+        document.documentElement.style.setProperty("--left-w", pct + "%"); store.set("rag-left-w", pct);
+      } else {
+        const pct = Math.min(85, Math.max(20, (ev.clientY - box.top) / box.height * 100));
+        document.documentElement.style.setProperty("--code-h", pct + "%"); store.set("rag-code-h", pct);
+      }
+      editor.refresh();
+    };
+    const up = () => { g.classList.remove("dragging"); g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); };
+    g.addEventListener("pointermove", move); g.addEventListener("pointerup", up);
+  });
+}
+const lw = store.get("rag-left-w", null), ch = store.get("rag-code-h", null);
+if (lw) document.documentElement.style.setProperty("--left-w", lw + "%");
+if (ch) document.documentElement.style.setProperty("--code-h", ch + "%");
+splitter("gutter-v", "x"); splitter("gutter-h", "y");
+
+/* ---------------- events ---------------- */
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.tab) return showTab(t.dataset.tab);
+  if (t.dataset.rtab) return showResultTab(t.dataset.rtab);
+  if (t.dataset.goto) return showTab(t.dataset.goto);
+  if (t.dataset.case !== undefined && lastResult) { lastResult.selected = +t.dataset.case; return renderResult(); }
+  if (t.dataset.open) return open(t.dataset.module ? +t.dataset.module : current.module, t.dataset.open);
+  if (t.id === "reveal-hint") {
+    try {
+      const r = await api("/api/hint", { module: current.module, problem: current.problem });
+      Object.assign(problemData(), r); renderHints(); renderDescription();
+    } catch (err) { toast(err.message); }
+  }
+});
+$("run-btn").onclick = () => run("problem");
+$("exec-btn").onclick = $("exec-btn-2").onclick = () => execRun();
+$("scratch-reset").onclick = () => {
+  const p = problemData(); if (!p) return;
+  scratch.setValue(p.starter || ""); scratch.focus();
+};
+$("submit-btn").onclick = () => run("module");
+$("prev-btn").onclick = () => step(-1);
+$("next-btn").onclick = () => step(1);
+$("list-btn").onclick = openDrawer;
+$("close-drawer").onclick = closeDrawer;
+$("scrim").onclick = closeDrawer;
+$("reset-btn").onclick = async () => {
+  if (!confirm(`Reset ${current.problem} to the original starter code? Your code for this problem will be lost.`)) return;
+  try {
+    const r = await api("/api/reset", { module: current.module, problem: current.problem });
+    loading = true; editor.setValue(r.code); loading = false; dirty = false;
+    $("save-state").textContent = "Saved"; problemData().code = r.code;
+    lastResult = null; renderResult(); refreshStatus();
+  } catch (err) { toast(err.message); }
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeDrawer();
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key === "'") { e.preventDefault(); execRun(); }
+  if (mod && e.key === "Enter") {
+    e.preventDefault();
+    // In the playground, Ctrl+Enter runs the playground code; everywhere else it runs the tests.
+    if (e.target.closest?.("#scratch")) execRun(); else run(e.shiftKey ? "module" : "problem");
+  }
+  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+});
+window.addEventListener("beforeunload", () => {
+  if (dirty) navigator.sendBeacon?.("/api/save", new Blob([JSON.stringify({ module: current.module, problem: current.problem, code: editor.getValue() })], { type: "application/json" }));
+});
+
+/* ---------------- start ---------------- */
+(async () => {
+  renderResult(); renderExec();
+  showResultTab(store.get("rag-result-tab", "result"));
+  $("tab-desc").innerHTML = `<div class="empty"><div class="spinner"></div></div>`;
+  // Progress runs every test, which can take a few seconds: load it in the background.
+  const progress = refreshStatus();
+  const saved = store.get("rag-current", null);
+  try { await open(saved ? saved.module : 1, saved ? saved.problem : null); }
+  catch { await open(1, null); }
+  await progress;
+})();
+</script>
+</body>
+</html>
